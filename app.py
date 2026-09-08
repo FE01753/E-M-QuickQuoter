@@ -46,7 +46,7 @@ st.markdown(
 st.title("⚡ E&M AI 萬能報價單智能識別器")
 st.write("上載**任何新 Quotation**（不論 PDF、相片、JPG），AI 智能引擎自動幫你逐項認出內容、數量、單價與金額！")
 
-# 檢查 API Key 設定（確保 AI 功能正常運作）
+# 檢查 API Key 設定
 api_key = os.environ.get("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY", "")
 if HAS_GENAI and api_key:
     genai.configure(api_key=api_key)
@@ -72,7 +72,7 @@ if uploaded_file is not None:
             
             ai_success = False
             
-            # 方法一：如果有設定 GenAI，優先利用 AI 視覺/文本多模態模型精準識別任何格式 (PDF/JPG/PNG)
+            # 方法一：利用 AI 視覺/文本多模態模型精準識別任何格式 (PDF/JPG/PNG)
             if HAS_GENAI and api_key:
                 try:
                     model = genai.GenerativeModel('gemini-1.5-flash')
@@ -113,7 +113,7 @@ if uploaded_file is not None:
                 except Exception:
                     ai_success = False
 
-            # 方法二：如果沒有 GenAI 或 AI 解析失敗，則提供預設項目或 PyMuPDF 備用解析
+            # 方法二：備用 PyMuPDF 文本切行
             if not ai_success and file_extension == 'pdf' and HAS_FITZ:
                 try:
                     doc = fitz.open(stream=file_bytes, filetype="pdf")
@@ -134,7 +134,7 @@ if uploaded_file is not None:
                 except Exception:
                     pass
             
-            # 確保萬一拎唔到有預設返回
+            # 若無數據則給予預設
             if not extracted_items:
                 extracted_items = [
                     {
@@ -166,23 +166,3 @@ if 'ai_extracted_quotation' in st.session_state:
         qty_str = f"{item_qty} {item.get('unit', '項')}"
         price_str = f"${item_price:,.2f}"
         amount_str = f"${item_total_amount:,.2f}"
-        
-        with st.container():
-            col_h1, col_h2 = st.columns([4, 1])
-            with col_h1:
-                st.markdown(f"**Item {item.get('item_no', idx+1)}**")
-            with col_h2:
-                if st.button(f"📋 複製內容", key=f"ai_copy_desc_{idx}"):
-                    st.toast(f"已成功複製項目內容！", icon="✅")
-            
-            # 內容文字框（可隨時修改）
-            new_desc = st.text_area(
-                "內容描述 (Description)：", 
-                value=item.get('description', ''), 
-                height=85, 
-                key=f"ai_desc_box_{idx}"
-            )
-            item['description'] = new_desc
-            
-            # 數量、單價、金額及其獨立 Copy 按鈕列
-            c_q_text, c_q_btn, c_p_
