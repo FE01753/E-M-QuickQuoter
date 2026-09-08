@@ -17,7 +17,7 @@ except ImportError:
 
 st.set_page_config(page_title="E&M Quotation 原始文字提取工具", page_icon="⚡", layout="centered")
 
-# --- 自訂 CSS 樣式：Aptos 12pt 及緊湊靠右對齊樣式 ---
+# --- 自訂 CSS 樣式：Aptos 12pt 及低調水印樣式 ---
 st.markdown(
     """
     <style>
@@ -32,32 +32,23 @@ st.markdown(
         padding-top: 2px;
         padding-bottom: 6px;
     }
+    .subtle-watermark {
+        text-align: center;
+        color: #555555;
+        font-size: 10px;
+        letter-spacing: 1px;
+        margin-top: 30px;
+    }
     </style>
     """,
     unsafe_allow_html=True
 )
 
 st.title("⚡ E&M Quotation 原始文字項目提取工具")
-st.caption("✨ System curated & Design by nikki 💅")
-st.write("精準對齊橫向表格項目（**唔需要翻譯**），保留中文原文、支援數量與金額試算及獨立一鍵複製！")
-
-# --- 價錢倍數調整 Option ---
-st.markdown("---")
-st.subheader("⚙️ 報價金額調整設定 (Markup Option)")
-multiplier = st.slider(
-    "選擇價錢調整倍數 (Multiplier) —— 用於自動放大單價及總金額：",
-    min_value=1.0, 
-    max_value=1.5, 
-    value=1.0, 
-    step=0.05,
-    format="%.2fx"
-)
-if multiplier > 1.0:
-    st.info(f"💡 目前已啟用價格調整：所有單價與金額將會自動乘以 **{multiplier} 倍** 顯示。")
-st.markdown("---")
+st.write("精準對齊橫向表格項目（保留中文原文），支援數量、單價、總金額顯示及獨立一鍵複製！")
 
 def parse_original_quotation(uploaded_file):
-    # 呢度保留中文字串（唔做英文翻譯）
+    # 保留中文原文數據結構
     table_items = [
         {
             "item_no": 1,
@@ -121,8 +112,7 @@ if 'original_extracted_quotation' in st.session_state:
     calculated_grand_total = 0
     
     for idx, item in enumerate(items):
-        adjusted_unit_price = item['unit_price'] * multiplier
-        item_total_amount = item['qty'] * adjusted_unit_price
+        item_total_amount = item['qty'] * item['unit_price']
         calculated_grand_total += item_total_amount
         
         with st.container():
@@ -134,7 +124,7 @@ if 'original_extracted_quotation' in st.session_state:
                 if st.button(f"📋 複製 Item {item['item_no']}", key=f"orig_copy_btn_{item['item_no']}"):
                     st.toast(f"已成功複製 Item {item['item_no']} 內容！", icon="✅")
             
-            # 中文原文文字框（方便隨時修改或複製）
+            # 中文原文文字框
             st.text_area(
                 "內容描述 (Original Description)：", 
                 value=item['description'], 
@@ -146,7 +136,7 @@ if 'original_extracted_quotation' in st.session_state:
             st.markdown(
                 f"<div class='right-align-details'>"
                 f"<b>數量:</b> {item['qty']} {item['unit']} &nbsp;|&nbsp; "
-                f"<b>單價:</b> ${adjusted_unit_price:,.2f} &nbsp;|&nbsp; "
+                f"<b>單價:</b> ${item['unit_price']:,.2f} &nbsp;|&nbsp; "
                 f"<b>金額:</b> <span style='color: #ffffff; font-weight: bold;'>${item_total_amount:,.2f}</span>"
                 f"</div>",
                 unsafe_allow_html=True
@@ -163,7 +153,6 @@ if 'original_extracted_quotation' in st.session_state:
     with col_ex1:
         if st.button("📥 下載表格數據 (JSON)"):
             export_data = {
-                "multiplier": multiplier,
                 "grand_total": calculated_grand_total,
                 "items": items
             }
@@ -174,11 +163,10 @@ if 'original_extracted_quotation' in st.session_state:
             del st.session_state['original_extracted_quotation']
             st.rerun()
 
-# 頁尾水印
-st.markdown("---")
+# 低調水印
 st.markdown(
-    "<div style='text-align: center; color: #a0a0a0; font-size: 11px;'>"
-    "🛠️ <b>Design by nikki 💅</b> | E&M Automation Tool"
+    "<div class='subtle-watermark'>"
+    "System curated & Design by nikki 💅"
     "</div>", 
     unsafe_allow_html=True
 )
