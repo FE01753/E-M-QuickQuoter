@@ -9,18 +9,18 @@ try:
 except ImportError:
     HAS_PDF = False
 
-st.set_page_config(page_title="報價單表格分隔還原工具", page_icon="⚡", layout="centered")
+st.set_page_config(page_title="報價單表格文字還原工具", page_icon="⚡", layout="centered")
 
-st.title("⚡ 報價單表格分隔還原工具")
-st.write("上載 PDF 或相片，自動以帶框線嘅專業表格顯示，並提供 HTML / Markdown 原始碼方便複製！")
+st.title("⚡ 報價單表格文字還原工具")
+st.write("上載 PDF 或相片，直接轉為 Excel 適用嘅整齊表格文字格式，方便一鍵複製！")
 
 uploaded_file = st.file_uploader("📂 請上載報價單 PDF 或相片 (JPG, PNG)", type=["pdf", "png", "jpg", "jpeg"])
 
 if uploaded_file is not None:
     file_name = uploaded_file.name.lower()
     
-    if st.button("🚀 開始生成分隔表格", type="primary", use_container_width=True):
-        with st.spinner("🤖 正在重組欄位並製作分隔表格..."):
+    if st.button("🚀 開始轉化表格文字", type="primary", use_container_width=True):
+        with st.spinner("🤖 正在提取並轉化為 Excel 表格格式..."):
             try:
                 raw_text = ""
                 if file_name.endswith('.pdf') and HAS_PDF:
@@ -63,20 +63,8 @@ if uploaded_file is not None:
                         
                         rows.sort(key=lambda r: r['y'])
                         
-                        # 建立靚仔嘅 HTML 表格（帶有實線格線）
-                        html_table = """
-                        <table style="width:100%; border-collapse: collapse; font-family: sans-serif; font-size: 14px;">
-                          <thead>
-                            <tr style="background-color: #f2f2f2; border-bottom: 2px solid #ddd;">
-                              <th style="border: 1px solid #ddd; padding: 10px; text-align: center; width: 10%;">項目 Item</th>
-                              <th style="border: 1px solid #ddd; padding: 10px; text-align: left; width: 45%;">內容 Descriptions</th>
-                              <th style="border: 1px solid #ddd; padding: 10px; text-align: center; width: 15%;">數量 Qty</th>
-                              <th style="border: 1px solid #ddd; padding: 10px; text-align: right; width: 15%;">單價 Unit Price</th>
-                              <th style="border: 1px solid #ddd; padding: 10px; text-align: right; width: 15%;">金額 Price</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                        """
+                        # 建立純文字表格（用 Tab 分隔，最適合直接貼入 Excel）
+                        excel_text_lines = ["項目 Item\t內容 Descriptions\t數量 Qty\t單價 Unit Price\t金額 Price"]
                         
                         seen_lines = set()
                         for row in rows:
@@ -96,43 +84,32 @@ if uploaded_file is not None:
                             if full_line and full_line not in seen_lines:
                                 seen_lines.add(full_line)
                                 
-                                # 嘗試智能分配欄位 (Item, Desc, Qty, Price)
                                 col_item = row_texts[0] if len(row_texts) > 0 else ""
                                 col_desc = " ".join(row_texts[1:-2]) if len(row_texts) > 3 else full_line
                                 col_qty = row_texts[-2] if len(row_texts) > 2 else ""
                                 col_price = row_texts[-1] if len(row_texts) > 1 else ""
                                 
-                                html_table += f"""
-                                <tr style="border-bottom: 1px solid #ddd;">
-                                  <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">{col_item}</td>
-                                  <td style="border: 1px solid #ddd; padding: 10px; text-align: left;">{col_desc}</td>
-                                  <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">{col_qty}</td>
-                                  <td style="border: 1px solid #ddd; padding: 10px; text-align: right;">{col_price}</td>
-                                  <td style="border: 1px solid #ddd; padding: 10px; text-align: right;"></td>
-                                </tr>
-                                """
+                                # 用 \t (Tab鍵) 分隔每一格，咁樣貼落 Excel 會自動入唔同嘅格
+                                excel_text_lines.append(f"{col_item}\t{col_desc}\t{col_qty}\t{col_price}\t")
                                 
-                        html_table += "  </tbody>\n</table>"
-                        st.session_state['table_html'] = html_table
+                        st.session_state['excel_table_text'] = "\n".join(excel_text_lines)
                     else:
-                        st.session_state['table_html'] = "<p>無法讀取內容</p>"
+                        st.session_state['excel_table_text'] = "無法讀取內容"
                 
-                st.success("🎉 分隔表格生成成功！")
+                st.success("🎉 表格文字轉化成功！")
             except Exception as e:
                 st.error(f"讀取錯誤: {str(e)}")
 
-if 'table_html' in st.session_state:
+if 'excel_table_text' in st.session_state:
     st.markdown("---")
-    st.subheader("📋 表格預覽（帶清晰格線分隔）")
+    st.subheader("📋 Excel 專用表格文字（可直接全選複製貼上）")
+    st.write("底下嘅格子入面全部都係對齊好嘅表格文字，直接 Copy 就可以貼入 Excel 或系統：")
     
-    # 直接在 Streamlit 渲染出帶邊框嘅 HTML 表格
-    st.markdown(st.session_state['table_html'], unsafe_allow_html=True)
-    
-    st.markdown("### 📝 HTML 原始碼（方便複製貼落網頁或系統）")
-    st.text_area("HTML Source", value=st.session_state['table_html'], height=250, label_visibility="collapsed")
+    # 乾淨嘅文字輸入格，不再包含任何 HTML 碼
+    st.text_area("Excel 表格文本", value=st.session_state['excel_table_text'], height=450, label_visibility="collapsed")
     
     if st.button("🗑️ 清空重置", use_container_width=True):
-        del st.session_state['table_html']
+        del st.session_state['excel_table_text']
         st.rerun()
 
 st.markdown("<div style='text-align: center; color: #555; font-size: 10px; margin-top: 30px;'>System curated & Design by nikki 💅</div>", unsafe_allow_html=True)
