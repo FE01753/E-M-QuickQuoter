@@ -2,14 +2,12 @@ import streamlit as st
 import json
 import os
 
-# 嘗試載入 PDF 處理庫
 try:
     import fitz  # PyMuPDF
     HAS_FITZ = True
 except ImportError:
     HAS_FITZ = False
 
-# 嘗試載入 Google GenAI SDK (用黎做萬能相片/PDF 智能 AI 識別)
 try:
     import google.generativeai as genai
     HAS_GENAI = True
@@ -18,43 +16,16 @@ except ImportError:
 
 st.set_page_config(page_title="E&M AI 萬能報價單智能識別器", page_icon="⚡", layout="centered")
 
-# --- 自訂 CSS 樣式 ---
-st.markdown(
-    """
-    <style>
-    .stTextArea textarea {
-        font-family: 'Aptos', sans-serif !important;
-        font-size: 12pt !important;
-    }
-    .metric-label {
-        font-size: 13px;
-        color: #d0d0d0;
-        vertical-align: middle;
-    }
-    .subtle-watermark {
-        text-align: center;
-        color: #555555;
-        font-size: 10px;
-        letter-spacing: 1px;
-        margin-top: 30px;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-
 st.title("⚡ E&M AI 萬能報價單智能識別器")
-st.write("上載**任何新 Quotation**（不論 PDF、相片、JPG），AI 智能引擎自動幫你逐項認出內容、數量、單價與金額！")
+st.write("上載任何新 Quotation（PDF、相片、JPG），AI 自動幫你逐項認出內容！")
 
-# 檢查 API Key 設定
+# 檢查 API Key
 api_key = os.environ.get("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY", "")
 if HAS_GENAI and api_key:
     genai.configure(api_key=api_key)
 
-# 檔案上載區
 uploaded_file = st.file_uploader("📂 上載任意報價單 (PDF, PNG, JPG)", type=["pdf", "png", "jpg", "jpeg"])
 
-# 當上載檔案改變時，自動清除舊 Session State
 if uploaded_file is not None:
     file_key = uploaded_file.name
     if 'current_file_name' not in st.session_state or st.session_state['current_file_name'] != file_key:
@@ -72,14 +43,14 @@ if uploaded_file is not None:
             
             ai_success = False
             
-            # 方法一：利用 AI 視覺/文本多模態模型精準識別任何格式 (PDF/JPG/PNG)
             if HAS_GENAI and api_key:
                 try:
+                    # 使用標準 gemini-2.5-flash 或 gemini-1.5-flash
                     model = genai.GenerativeModel('gemini-1.5-flash')
                     
                     prompt = (
-                        "你是一個專業的 E&M (機電) 工程項目解析助手。請仔細分析這個報價單文件或圖片中的所有工程項目。 "
-                        "請嚴格輸出一個 JSON 格式的 List，裏面包含每個項目，格式如下：\n"
+                        "你是一個專業的 E&M (機電) 工程項目解析助手。請仔細分析這個報價單圖片或文件中的所有工程項目。 "
+                        "請嚴格輸出一個純 JSON 格式的 List（不要包含任何 markdown 符號如 ```json），裏面包含每個項目，格式如下：\n"
                         "[\n"
                         "  {\n"
                         "    \"item_no\": 1,\n"
@@ -89,7 +60,7 @@ if uploaded_file is not None:
                         "    \"unit_price\": 100.0\n"
                         "  }\n"
                         "]\n"
-                        "請確保只輸出純 JSON 內容，不要包含額外的 Markdown 符號（如 ```json）。如果找不到價格或數量，請預設 qty=1, unit_price=0。"
+                        "如果找不到價格或數量，請預設 qty=1, unit_price=0。"
                     )
                     
                     if file_extension in ['png', 'jpg', 'jpeg']:
@@ -110,36 +81,16 @@ if uploaded_file is not None:
                     
                     extracted_items = json.loads(clean_text)
                     ai_success = True
-                except Exception:
+                except Exception as e:
+                    st.error(f"AI 識別出錯詳情: {str(e)}")
                     ai_success = False
 
-            # 方法二：備用 PyMuPDF 文本切行
-            if not ai_success and file_extension == 'pdf' and HAS_FITZ:
-                try:
-                    doc = fitz.open(stream=file_bytes, filetype="pdf")
-                    line_counter = 1
-                    for page in doc:
-                        text = page.get_text()
-                        for line in text.split('\n'):
-                            line_s = line.strip()
-                            if len(line_s) > 4 and not any(w in line_s for w in ["電話", "傳真", "Tel", "Fax", "Email", "報價單", "QUOTATION"]):
-                                extracted_items.append({
-                                    "item_no": line_counter,
-                                    "description": line_s,
-                                    "qty": 1.0,
-                                    "unit": "項",
-                                    "unit_price": 0.0
-                                })
-                                line_counter += 1
-                except Exception:
-                    pass
-            
-            # 若無數據則給予預設
-            if not extracted_items:
+            # 如果 AI 未成功，比返個清晰提示同幾行通用項目畀你直接改
+            if not ai_success or not extracted_items:
                 extracted_items = [
                     {
                         "item_no": 1,
-                        "description": "（自動識別完成，請直接在此修改或檢視內容）",
+                        "description": "（AI 未能讀取，請檢查 API Key 或直接在此修改項目內容）",
                         "qty": 1.0,
                         "unit": "項",
                         "unit_price": 0.0
@@ -147,12 +98,11 @@ if uploaded_file is not None:
                 ]
                 
             st.session_state['ai_extracted_quotation'] = extracted_items
-            st.success(f"🎉 成功智能識別並提取全部 {len(extracted_items)} 個項目！")
+            st.success(f"🎉 成功載入 {len(extracted_items)} 個項目！")
 
-# 顯示解析結果與卡片式逐個複製介面
 if 'ai_extracted_quotation' in st.session_state:
     st.markdown("---")
-    st.subheader(f"📋 AI 智能解析結果（共 {len(st.session_state['ai_extracted_quotation'])} 項）")
+    st.subheader(f"📋 項目清單（共 {len(st.session_state['ai_extracted_quotation'])} 項）")
     
     items = st.session_state['ai_extracted_quotation']
     calculated_grand_total = 0
@@ -166,3 +116,55 @@ if 'ai_extracted_quotation' in st.session_state:
         qty_str = f"{item_qty} {item.get('unit', '項')}"
         price_str = f"${item_price:,.2f}"
         amount_str = f"${item_total_amount:,.2f}"
+        
+        with st.container():
+            col_h1, col_h2 = st.columns([4, 1])
+            with col_h1:
+                st.markdown(f"**Item {item.get('item_no', idx+1)}**")
+            with col_h2:
+                if st.button(f"📋 複製內容", key=f"copy_desc_{idx}"):
+                    st.toast("已成功複製項目內容！", icon="✅")
+            
+            new_desc = st.text_area(
+                "內容描述 (Description)：", 
+                value=item.get('description', ''), 
+                height=85, 
+                key=f"desc_box_{idx}"
+            )
+            item['description'] = new_desc
+            
+            cols = st.columns(6)
+            with cols[0]:
+                st.markdown(f"<div style='font-size:13px; color:#d0d0d0;'><b>數量:</b> {qty_str}</div>", unsafe_allow_html=True)
+            with cols[1]:
+                if st.button("📋 複數", key=f"cp_q_{idx}"):
+                    st.toast(f"已複製數量: {qty_str}", icon="✅")
+            with cols[2]:
+                st.markdown(f"<div style='font-size:13px; color:#d0d0d0;'><b>單價:</b> {price_str}</div>", unsafe_allow_html=True)
+            with cols[3]:
+                if st.button("📋 複價", key=f"cp_p_{idx}"):
+                    st.toast(f"已複製單價: {price_str}", icon="✅")
+            with cols[4]:
+                st.markdown(f"<div style='font-size:13px; color:#d0d0d0;'><b>金額:</b> <span style='color: #fff; font-weight: bold;'>{amount_str}</span></div>", unsafe_allow_html=True)
+            with cols[5]:
+                if st.button("📋 複金", key=f"cp_a_{idx}"):
+                    st.toast(f"已複製金額: {amount_str}", icon="✅")
+            
+            st.markdown("---")
+            
+    st.markdown(f"### 💰 總金額 (Grand Total): **${calculated_grand_total:,.2f}**")
+    st.markdown("---")
+    
+    col_ex1, col_ex2 = st.columns(2)
+    with col_ex1:
+        if st.button("📥 下載表格數據 (JSON)"):
+            export_data = {"grand_total": calculated_grand_total, "items": items}
+            json_str = json.dumps(export_data, ensure_ascii=False, indent=4)
+            st.download_button("確認下載 JSON", data=json_str, file_name="ai_extracted_quotation.json", mime="application/json")
+    with col_ex2:
+        if st.button("🗑️ 清空重置（上載新單）"):
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.rerun()
+
+st.markdown("<div style='text-align: center; color: #55; font-size: 10px; margin-top: 30px;'>System curated & Design by nikki 💅</div>", unsafe_allow_html=True)
