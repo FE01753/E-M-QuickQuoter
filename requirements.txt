@@ -1,4 +1,1 @@
 streamlit
-pypdf
-Pillow
-google-genai
