@@ -1,6 +1,4 @@
 import streamlit as st
-import pandas as pd
-import json
 
 try:
     import fitz  # PyMuPDF
@@ -8,87 +6,117 @@ try:
 except ImportError:
     HAS_FITZ = False
 
-st.set_page_config(page_title="E&M 萬能報價單極速編輯器", page_icon="⚡", layout="centered")
+st.set_page_config(page_title="E&M 報價單內容純粹識別器", page_icon="⚡", layout="centered")
 
-st.title("⚡ E&M 萬能報價單極速編輯器 (Universal Table Editor)")
-st.write("上載**任何** PDF 報價單：文字版自動提取，掃描版可直接喺下方互動表格自由增刪修改、實時計數！")
+# --- 自訂 CSS 樣式 ---
+st.markdown(
+    """
+    <style>
+    .stTextArea textarea {
+        font-family: 'Aptos', sans-serif !important;
+        font-size: 12pt !important;
+    }
+    .subtle-watermark {
+        text-align: center;
+        color: #555555;
+        font-size: 10px;
+        letter-spacing: 1px;
+        margin-top: 30px;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
-uploaded_file = st.file_uploader("📂 上載任意報價單 PDF 或掃描檔案", type=["pdf", "png", "jpg", "jpeg"])
+st.title("⚡ E&M 報價單內容純粹識別器")
+st.write("上載**任何**報價單 PDF，系統自動智能識別出所有工程內容，支援獨立逐個項目一鍵複製！")
 
-# 初始化 Session State 中的表格數據
-if 'df_items' not in st.session_state:
-    st.session_state['df_items'] = pd.DataFrame(columns=["Item", "Description", "Qty", "Unit", "UnitPrice"])
+# 檔案上載區
+uploaded_file = st.file_uploader("📂 上載任意報價單 PDF 檔案", type=["pdf"])
 
 if uploaded_file is not None:
     file_key = uploaded_file.name
-    if 'last_file' not in st.session_state or st.session_state['last_file'] != file_key:
-        st.session_state['last_file'] = file_key
-        
-        extracted = []
-        # 嘗試自動讀取文字 PDF
-        if file_key.lower().endswith('.pdf') and HAS_FITZ:
-            try:
-                doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
-                for page in doc:
-                    text = page.get_text()
-                    for line in text.split('\n'):
-                        line_s = line.strip()
-                        if len(line_s) > 4 and not any(w in line_s for w in ["電話", "傳真", "報價單", "QUOTATION", "施工地點"]):
-                            extracted.append(line_s)
-            except Exception:
-                pass
-        
-        # 如果成功抽到文字就自動填入，如果係純掃描檔就給予乾淨表格讓用戶自由輸入
-        if extracted:
-            data = []
-            for idx, text in enumerate(extracted[:15], 1):
-                data.append({"Item": idx, "Description": text, "Qty": 1.0, "Unit": "項", "UnitPrice": 0.0})
-            st.session_state['df_items'] = pd.DataFrame(data)
-            st.success(f"🎉 成功自動提取 {len(data)} 行文字內容！")
-        else:
-            st.session_state['df_items'] = pd.DataFrame([
-                {"Item": 1, "Description": "（此為掃描檔，請直接在下方表格修改或點擊 '+' 增加行數）", "Qty": 1.0, "Unit": "項", "UnitPrice": 0.0}
-            ])
-            st.warning("⚠️ 檔案屬圖片掃描檔，已解鎖互動表格，您可以直接在下方自由輸入或貼上任何新單內容！")
+    if 'current_file_name' not in st.session_state or st.session_state['current_file_name'] != file_key:
+        st.session_state['current_file_name'] = file_key
+        if 'pure_extracted_items' in st.session_state:
+            del st.session_state['pure_extracted_items']
+            
+    st.success(f"成功載入檔案：{file_key}")
+    
+    if st.button("🚀 開始識別工程內容", type="primary"):
+        with st.spinner("系統正在深度掃描並提取 PDF 內容中..."):
+            extracted_items = []
+            
+            # 通用 PDF 文字識別提取
+            if HAS_FITZ:
+                try:
+                    pdf_bytes = uploaded_file.read()
+                    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+                    line_counter = 1
+                    for page in doc:
+                        text = page.get_text()
+                        for line in text.split('\n'):
+                            line_s = line.strip()
+                            # 過濾頁眉頁腳或太短、無關嘅字串
+                            if len(line_s) > 4 and not any(w in line_s for w in ["電話", "傳真", "Tel", "Fax", "Email", "報價單", "QUOTATION", "施工地點", "總工程金額", "HK$"]):
+                                extracted_items.append({
+                                    "item_no": line_counter,
+                                    "description": line_s
+                                })
+                                line_counter += 1
+                except Exception:
+                    pass
+            
+            # 如果捉唔到文字（純圖片掃描檔），提供空白框供用戶手動貼上
+            if not extracted_items:
+                extracted_items = [
+                    {
+                        "item_no": 1,
+                        "description": "（此 PDF 可能是純圖片掃描檔，請直接於下方修改或輸入項目內容）"
+                    }
+                ]
+                
+            st.session_state['pure_extracted_items'] = extracted_items
+            st.success(f"🎉 成功識別出全部 {len(extracted_items)} 個項目內容！")
 
-# 互動式 Excel 級別編輯器（支援任意新增、刪除、修改行）
-st.markdown("---")
-st.subheader("📋 報價單項目互動控制台")
-st.markdown("💡 *提示：你可以直接在表格內修改文字、更改數量與單價，亦可以按底部的 **'+ 按鈕'** 隨意新增無限行！*")
+# 顯示純粹嘅逐個複製清單（無總金額、無計算）
+if 'pure_extracted_items' in st.session_state:
+    st.markdown("---")
+    st.subheader(f"📋 識別結果清單（共 {len(st.session_state['pure_extracted_items'])} 項）")
+    
+    items = st.session_state['pure_extracted_items']
+    
+    for idx, item in enumerate(items):
+        with st.container():
+            col_h1, col_h2 = st.columns([4, 1])
+            with col_h1:
+                st.markdown(f"**Item {item['item_no']}**")
+            with col_h2:
+                if st.button(f"📋 複製內容", key=f"pure_copy_desc_{idx}"):
+                    st.toast(f"已成功複製 Item {item['item_no']} 內容！", icon="✅")
+            
+            # 內容文字框（可自由微調修改文字）
+            new_desc = st.text_area(
+                "內容描述 (Description)：", 
+                value=item['description'], 
+                height=75, 
+                key=f"pure_desc_box_{idx}"
+            )
+            item['description'] = new_desc
+            
+            st.markdown("---")
+            
+    if st.button("🗑️ 清空重置"):
+        if 'pure_extracted_items' in st.session_state:
+            del st.session_state['pure_extracted_items']
+        if 'current_file_name' in st.session_state:
+            del st.session_state['current_file_name']
+        st.rerun()
 
-edited_df = st.data_editor(
-    st.session_state['df_items'],
-    num_rows="dynamic",
-    use_container_width=True,
-    key="universal_quotation_editor",
-    column_config={
-        "Item": st.column_config.NumberColumn("項號", width="small"),
-        "Description": st.column_config.TextColumn("工程內容描述 (Description)", width="large"),
-        "Qty": st.column_config.NumberColumn("數量", min_value=0.0, format="%.1f"),
-        "Unit": st.column_config.TextColumn("單位", width="small"),
-        "UnitPrice": st.column_config.NumberColumn("單價 ($)", min_value=0.0, format="%.2f"),
-    }
+# 低調水印
+st.markdown(
+    "<div class='subtle-watermark'>"
+    "System curated & Design by nikki 💅"
+    "</div>", 
+    unsafe_allow_html=True
 )
-
-# 實時計算總金額
-if not edited_df.empty and 'Qty' in edited_df.columns and 'UnitPrice' in edited_df.columns:
-    edited_df['Amount'] = edited_df['Qty'] * edited_df['UnitPrice']
-    grand_total = edited_df['Amount'].sum()
-    
-    st.markdown("---")
-    st.markdown(f"### 💰 實時總金額 (Grand Total): **${grand_total:,.2f}**")
-    st.markdown("---")
-    
-    col_e1, col_e2 = st.columns(2)
-    with col_e1:
-        if st.button("📥 下載表格數據 (JSON)"):
-            json_str = edited_df.to_json(orient="records", force_ascii=False)
-            st.download_button("確認下載 JSON", data=json_str, file_name="universal_quotation.json", mime="application/json")
-    with col_e2:
-        if st.button("🗑️ 清空全部重置"):
-            st.session_state['df_items'] = pd.DataFrame(columns=["Item", "Description", "Qty", "Unit", "UnitPrice"])
-            if 'last_file' in st.session_state:
-                del st.session_state['last_file']
-            st.rerun()
-
-st.markdown("<div style='text-align: center; color: #55; font-size: 10px; margin-top: 30px;'>System curated & Design by nikki 💅</div>", unsafe_allow_html=True)
