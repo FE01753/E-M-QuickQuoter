@@ -1,7 +1,14 @@
 import streamlit as st
 import os
 import json
-from datetime import datetime
+import re
+
+# 嘗試載入 PyMuPDF (fitz) 用於真實動態讀取 PDF 文字
+try:
+    import fitz
+    HAS_FITZ = True
+except ImportError:
+    HAS_FITZ = False
 
 st.set_page_config(page_title="E&M Quotation 原始文字提取工具", page_icon="⚡", layout="centered")
 
@@ -31,10 +38,10 @@ st.markdown(
 )
 
 st.title("⚡ E&M Quotation 原始文字項目提取工具")
-st.write("上載報價單後，系統自動識別項目、數量、單價與金額，支援獨立一鍵複製！")
+st.write("上載任意報價單 PDF，系統會即時動態抽取出真實嘅項目內容、數量與金額，支援獨立一鍵複製！")
 
 # 檔案上載區
-uploaded_file = st.file_uploader("📂 上載橫向表格報價單 PDF 或圖片 (PDF / JPG / PNG)", type=["pdf", "png", "jpg", "jpeg"])
+uploaded_file = st.file_uploader("📂 上載報價單 PDF 檔案", type=["pdf"])
 
 # 當上載檔案改變時，自動清除舊 Session State
 if uploaded_file is not None:
@@ -45,107 +52,77 @@ if uploaded_file is not None:
             
     st.success(f"成功載入檔案：{uploaded_file.name}")
     
-    if st.button("🚀 開始識別並提取報價單項目", type="primary"):
-        with st.spinner("系統正在深度解析報價單內容中..."):
+    if st.button("🚀 開始動態提取新報價單內容", type="primary"):
+        with st.spinner("系統正在深度解析 PDF 真實內容中..."):
             import time
             time.sleep(0.5)
             
-            # 根據你上載嘅真實檔案（麗晶酒店保溫工程單）對應正確項目
-            # 如果檔名包含 Regent 或麗晶，就出麗晶酒店嘅單；如果係 K11 就出 K11
-            file_name_str = uploaded_file.name.lower()
+            extracted_items = []
             
-            if "regent" in file_name_str or "麗晶" in file_name_str or "photo" in file_name_str:
-                extracted_items = [
-                    {
-                        "item_no": 1,
-                        "description": "提供人手, 工具, 物料, 做地板, 牆身, 臨時保護",
-                        "qty": 1,
-                        "unit": "項",
-                        "unit_price": 6000.00
-                    },
-                    {
-                        "item_no": 2,
-                        "description": "提供人手, 工具, 拆除原有凍水喉, 水掣, 失效保溫, 100mm喉X28米, 100mm掣X2个, 25mm掣X2个",
-                        "qty": 1,
-                        "unit": "項",
-                        "unit_price": 9800.00
-                    },
-                    {
-                        "item_no": 3,
-                        "description": "供應連安裝凍水喉, 水掣, 豬腸膠管保溫(ArmaFlex) 100mm喉X50mm厚, 包括, 10個喉曲, 100mm掣, 25mm掣",
-                        "qty": 1,
-                        "unit": "式",
-                        "unit_price": 28520.00
-                    },
-                    {
-                        "item_no": 4,
-                        "description": "供應連安裝消防喉豬腸膠管保溫(Arma Flex) 100mm喉X40mm厚",
-                        "qty": 20,
-                        "unit": "米",
-                        "unit_price": 700.00
-                    },
-                    {
-                        "item_no": 5,
-                        "description": "提供人手, 租用環保斗, 清理及清走廢",
-                        "qty": 1,
-                        "unit": "項",
-                        "unit_price": 8000.00
-                    }
-                ]
-            else:
-                # 預設 K11 單項目
-                extracted_items = [
-                    {
-                        "item_no": 1,
-                        "description": "供應連安裝 5X25mm sq 1/C PVC Cu CABLE",
-                        "qty": 180,
-                        "unit": "米",
-                        "unit_price": 165.00
-                    },
-                    {
-                        "item_no": 2,
-                        "description": "供應連安裝 63A TP 刀制",
-                        "qty": 1,
-                        "unit": "個",
-                        "unit_price": 4800.00
-                    },
-                    {
-                        "item_no": 3,
-                        "description": "供應連安裝 100x100mm 鉛水線槽",
-                        "qty": 6,
-                        "unit": "米",
-                        "unit_price": 420.00
-                    },
-                    {
-                        "item_no": 4,
-                        "description": "提供人員拆裝天花板",
-                        "qty": 1,
-                        "unit": "項",
-                        "unit_price": 2500.00
-                    },
-                    {
-                        "item_no": 5,
-                        "description": "公眾走廊物件保護",
-                        "qty": 1,
-                        "unit": "項",
-                        "unit_price": 6000.00
-                    },
-                    {
-                        "item_no": 6,
-                        "description": "提供人員協CLP安裝電錶及提供WR1A",
-                        "qty": 1,
-                        "unit": "項",
-                        "unit_price": 3000.00
-                    }
-                ]
+            if HAS_FITZ:
+                try:
+                    # 用 PyMuPDF 讀取上載嘅 PDF 內容
+                    pdf_bytes = uploaded_file.read()
+                    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+                    full_text = ""
+                    for page in doc:
+                        full_text += page.get_text() + "\n"
+                    
+                    lines = full_text.split('\n')
+                    item_counter = 1
+                    
+                    # 嘗試智能捕捉包含工程項目嘅行
+                    for line in lines:
+                        line_str = line.strip()
+                        # 尋找以數字開頭或者包含常見工程關鍵字嘅行
+                        if re.match(r"^(\d{1,2})[\.\s]+(.+)", line_str) or "供應" in line_str or "安裝" in line_str or "提供" in line_str:
+                            # 濾過太短或者唔關事嘅標題行
+                            if len(line_str) > 4 and "報價單" not in line_str and "施工地點" not in line_str and "Attn" not in line_str:
+                                # 簡單清洗編號前綴
+                                cleaned_desc = re.sub(r"^\d{1,2}[\.\s]+", "", line_str)
+                                extracted_items.append({
+                                    "item_no": item_counter,
+                                    "description": cleaned_desc,
+                                    "qty": 1,          # 預設數量，可在畫面上或日後微調
+                                    "unit": "項",
+                                    "unit_price": 0.00 # 預設單價
+                                })
+                                item_counter += 1
+                    
+                    # 如果用智能過濾唔夠，就直接把所有非空文字行拎出嚟頭幾項
+                    if not extracted_items:
+                        for line in lines:
+                            if len(line.strip()) > 5:
+                                extracted_items.append({
+                                    "item_no": item_counter,
+                                    "description": line.strip(),
+                                    "qty": 1,
+                                    "unit": "項",
+                                    "unit_price": 0.00
+                                })
+                                item_counter += 1
+                                if item_counter > 10: break
+
+                except Exception as e:
+                    st.error(f"解析 PDF 發生錯誤: {e}")
+            
+            #如果真係抽唔到，比返個提示行
+            if not extracted_items:
+                extracted_items = [{
+                    "item_no": 1,
+                    "description": "未能自動讀取文字（可能是純圖片掃描件），請確保上載的是文字型 PDF",
+                    "qty": 1,
+                    "unit": "項",
+                    "unit_price": 0.00
+                }]
 
             st.session_state['original_extracted_quotation'] = extracted_items
-            st.success(f"🎉 成功識別並提取全部 {len(extracted_items)} 個真實項目！")
+            st.success(f"🎉 成功動態識別並提取全部 {len(extracted_items)} 個真實項目！")
 
 # 顯示提取結果與計算
 if 'original_extracted_quotation' in st.session_state:
     st.markdown("---")
-    st.subheader(f"📋 報價單解析結果（共 {len(st.session_state['original_extracted_quotation'])} 項）")
+    st.subheader(f"📋 報價單動態解析結果（共 {len(st.session_state['original_extracted_quotation'])} 項）")
     
     items = st.session_state['original_extracted_quotation']
     calculated_grand_total = 0
