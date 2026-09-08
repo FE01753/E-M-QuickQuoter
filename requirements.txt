@@ -1,4 +1,4 @@
 streamlit
 pypdf
 Pillow
-pytesseract
+google-genai
