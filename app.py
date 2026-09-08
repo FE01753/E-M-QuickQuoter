@@ -1,6 +1,5 @@
 import streamlit as st
 import json
-from PIL import Image
 
 try:
     import fitz  # PyMuPDF 讀取 PDF
@@ -8,47 +7,26 @@ try:
 except ImportError:
     HAS_FITZ = False
 
-try:
-    import pytesseract
-    HAS_TESSERACT = True
-except ImportError:
-    HAS_TESSERACT = False
-
 st.set_page_config(page_title="E&M 本地文件自動分項工具", page_icon="⚡", layout="centered")
 
 st.title("⚡ E&M 本地文件自動分項工具")
-st.write("上載 **PDF** 或 **圖片 (JPG, PNG)**，系統自動讀取並分項，每項都可以獨立 Copy！")
+st.write("上載 **PDF** 檔案或直接貼上文字，系統秒速自動分項，**每項都可以獨立 Copy**！")
 
-# 同時支援 PDF 及圖片格式
-uploaded_file = st.file_uploader("📂 請上載報價單 PDF 或 圖片 (PNG, JPG)", type=["pdf", "png", "jpg", "jpeg"])
+input_mode = st.radio("選擇輸入方式：", ["📂 上載 PDF 檔案", "📝 直接貼上文字"], horizontal=True)
 
 raw_text = ""
 
-if uploaded_file is not None:
-    file_name = uploaded_file.name
-    ext = file_name.split('.')[-1].lower()
-    
-    if st.button("🚀 開始讀取並自動分項", type="primary"):
-        if ext == 'pdf':
-            if HAS_FITZ:
-                doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
-                for page in doc:
-                    raw_text += page.get_text() + "\n"
-            else:
-                st.error("缺少 fitz (PyMuPDF) 庫，無法讀取 PDF。")
-        elif ext in ['png', 'jpg', 'jpeg']:
-            if HAS_TESSERACT:
-                try:
-                    image = Image.open(uploaded_file)
-                    # 嘗試繁體中文加英文辨識
-                    raw_text = pytesseract.image_to_string(image, lang='chi_tra+eng')
-                except Exception as e:
-                    # 如果沒有裝中文語言包，則預設用英文辨識
-                    image = Image.open(uploaded_file)
-                    raw_text = pytesseract.image_to_string(image)
-            else:
-                # 若環境無 Tesseract 程式，提供一個簡易的備用提示或直接讀取檔名/轉文字
-                st.warning("⚠️ 系統偵測到本地未安裝 Tesseract OCR 引擎。建議直接使用「文字貼上」功能，或者使用 PDF 檔案！")
+if "📂 上載 PDF 檔案" in input_mode:
+    uploaded_pdf = st.file_uploader("請上載報價單 PDF", type=["pdf"])
+    if uploaded_pdf is not None and HAS_FITZ:
+        if st.button("🚀 開始讀取並自動分項", type="primary"):
+            doc = fitz.open(stream=uploaded_pdf.read(), filetype="pdf")
+            for page in doc:
+                raw_text += page.get_text() + "\n"
+else:
+    raw_text = st.text_area("請在此貼上報價單內容：", height=120)
+    if st.button("🚀 開始自動分項", type="primary"):
+        pass
 
 if raw_text.strip():
     lines = [l.strip() for l in raw_text.split('\n') if l.strip()]
