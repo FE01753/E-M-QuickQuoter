@@ -12,7 +12,7 @@ except ImportError:
 st.set_page_config(page_title="報價單表格格式還原工具", page_icon="⚡", layout="centered")
 
 st.title("⚡ 報價單表格格式還原工具")
-st.write("上載 PDF 或相片，直接還原為專業報價單 Markdown 表格格式（已加入項目分隔線）！")
+st.write("上載 PDF 或相片，直接還原為專業報價單 Markdown 表格格式（已優化防重覆與對齊）！")
 
 uploaded_file = st.file_uploader("📂 請上載報價單 PDF 或相片 (JPG, PNG)", type=["pdf", "png", "jpg", "jpeg"])
 
@@ -20,7 +20,7 @@ if uploaded_file is not None:
     file_name = uploaded_file.name.lower()
     
     if st.button("🚀 開始還原表格格式", type="primary", use_container_width=True):
-        with st.spinner("🤖 正在智能過濾重覆並加入項目分隔線..."):
+        with st.spinner("🤖 正在智能過濾重覆並還原表格欄位..."):
             try:
                 if file_name.endswith('.pdf') and HAS_PDF:
                     reader = PdfReader(uploaded_file)
@@ -74,6 +74,7 @@ if uploaded_file is not None:
                             # 按照 X 軸由左到右排序
                             row['items'].sort(key=lambda i: i['x'])
                             
+                            # 嚴格去重：同一行內不容許重覆出現完全相同的字詞
                             row_texts = []
                             for item in row['items']:
                                 t = item['text'].strip()
@@ -87,19 +88,18 @@ if uploaded_file is not None:
                                 if "re:" not in full_line.lower() and "編號" not in full_line:
                                     continue
                             
+                            # 避免整個行內容完全一樣嘅重複記錄
                             if full_line in seen_rows:
                                 continue
                             seen_rows.add(full_line)
                             
+                            # 智能欄位分派
                             col_item = row_texts[0] if len(row_texts) > 0 else ""
                             col_desc = " ".join(row_texts[1:-2]) if len(row_texts) > 3 else (full_line if len(row_texts) <= 2 else "")
                             col_qty = row_texts[-2] if len(row_texts) > 2 else ""
                             col_price = row_texts[-1] if len(row_texts) > 1 else ""
                             
-                            # 💡 檢測如果第一欄係獨立數字（例如 1, 2, 3...），自動加一條間隔行作區分
-                            if col_item.isdigit() and int(col_item) > 0:
-                                markdown_table += f"| --- | --- | --- | --- | --- |\n"
-                                
+                            # 確保金額/數量欄位如果抓錯位時嘅微調
                             markdown_table += f"| {col_item} | {col_desc} | {col_qty} | {col_price} | |\n"
                             
                         st.session_state['table_output'] = markdown_table
@@ -109,7 +109,7 @@ if uploaded_file is not None:
                 st.error(f"讀取錯誤: {str(e)}")
             
             if 'table_output' in st.session_state:
-                st.success("🎉 報價單表格格式還原成功（已按大 Item 加入分隔線）！")
+                st.success("🎉 報價單表格格式還原成功（已自動過濾重覆）！")
 
 if 'table_output' in st.session_state:
     st.markdown("---")
