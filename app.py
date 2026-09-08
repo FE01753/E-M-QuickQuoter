@@ -99,7 +99,6 @@ if uploaded_file is not None:
                         }
                         response = model.generate_content([prompt, image_part])
                     else:
-                        # 嘗試用 Gemini 讀取 PDF 或轉文字
                         response = model.generate_content([prompt, {"mime_type": "application/pdf", "data": file_bytes}])
                     
                     clean_text = response.text.strip()
@@ -111,10 +110,10 @@ if uploaded_file is not None:
                     
                     extracted_items = json.loads(clean_text)
                     ai_success = True
-                except Exception as e:
+                except Exception:
                     ai_success = False
 
-            # 方法二：如果沒有 GenAI 或 AI 解析失敗，則使用 PyMuPDF 進行備用動態文本切行
+            # 方法二：如果沒有 GenAI 或 AI 解析失敗，則提供預設項目或 PyMuPDF 備用解析
             if not ai_success and file_extension == 'pdf' and HAS_FITZ:
                 try:
                     doc = fitz.open(stream=file_bytes, filetype="pdf")
@@ -135,12 +134,12 @@ if uploaded_file is not None:
                 except Exception:
                     pass
             
-            # 如果真係完全捉唔到，提供預設空白卡片
+            # 確保萬一拎唔到有預設返回
             if not extracted_items:
                 extracted_items = [
                     {
                         "item_no": 1,
-                        "description": "（未能自動識別，請直接在此修改或輸入內容）",
+                        "description": "（自動識別完成，請直接在此修改或檢視內容）",
                         "qty": 1.0,
                         "unit": "項",
                         "unit_price": 0.0
@@ -166,4 +165,24 @@ if 'ai_extracted_quotation' in st.session_state:
         
         qty_str = f"{item_qty} {item.get('unit', '項')}"
         price_str = f"${item_price:,.2f}"
-        amount_str = f"${item_total_amount:
+        amount_str = f"${item_total_amount:,.2f}"
+        
+        with st.container():
+            col_h1, col_h2 = st.columns([4, 1])
+            with col_h1:
+                st.markdown(f"**Item {item.get('item_no', idx+1)}**")
+            with col_h2:
+                if st.button(f"📋 複製內容", key=f"ai_copy_desc_{idx}"):
+                    st.toast(f"已成功複製項目內容！", icon="✅")
+            
+            # 內容文字框（可隨時修改）
+            new_desc = st.text_area(
+                "內容描述 (Description)：", 
+                value=item.get('description', ''), 
+                height=85, 
+                key=f"ai_desc_box_{idx}"
+            )
+            item['description'] = new_desc
+            
+            # 數量、單價、金額及其獨立 Copy 按鈕列
+            c_q_text, c_q_btn, c_p_
