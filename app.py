@@ -123,7 +123,19 @@ if 'scanned_items' in st.session_state:
             item['description'] = new_desc
             
             # 顯示小計資料
-            st.markdown(f"<span style='font-size:13px; color:#d0d0d0;'>數量: {q} {item.get('unit','項')} | 單價: ${p:,.2f} \vert{} 金额: <b style='color:#fff;'>${amt:,.2f}</b></span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='font-size:13px; color:#d0d0d0;'>數量: {q} {item.get('unit','項')} | 單價: ${p:,.2f} | 金額: <b style='color:#fff;'>${amt:,.2f}</b></span>", unsafe_allow_html=True)
             st.markdown("---")
             
-    st
+    st.markdown(f"### 💰 總金額: **${grand_total:,.2f}**")
+    
+    col_d1, col_d2 = st.columns(2)
+    with col_d1:
+        if st.button("📥 下載 JSON 數據"):
+            json_str = json.dumps({"grand_total": grand_total, "items": items}, ensure_ascii=False, indent=4)
+            st.download_button("確認下載", data=json_str, file_name="scanned_quotation.json", mime="application/json")
+    with col_d2:
+        if st.button("🗑️ 清空重置"):
+            del st.session_state['scanned_items']
+            st.rerun()
+
+st.markdown("<div style='text-align: center; color: #555555; font-size: 10px; margin-top: 30px;'>System curated & Design by nikki 💅</div>", unsafe_allow_html=True)
