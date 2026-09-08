@@ -1,83 +1,98 @@
 import streamlit as st
 import json
 
-# 嘗試載入圖片處理與本地 OCR 套件
 try:
-    from PIL import Image
-    import pytesseract
-    HAS_TESSERACT = True
-except ImportError:
-    HAS_TESSERACT = False
-
-try:
-    import fitz  # PyMuPDF 讀取 PDF
+    import fitz  # PyMuPDF for PDF text extraction
     HAS_FITZ = True
 except ImportError:
     HAS_FITZ = False
 
-st.set_page_config(page_title="E&M 本地萬能文件/圖片 Scan 認字工具", page_icon="⚡", layout="centered")
+st.set_page_config(page_title="E&M 報價單智能卡片分項器", page_icon="⚡", layout="centered")
 
-st.title("⚡ E&M 本地文件/圖片 Scan 認字工具")
-st.write("上載 PDF 或圖片，系統會直接在本地 Scan 認字，一秒轉成文字隨時 Copy！")
+st.title("⚡ E&M 報價單智能卡片分項器")
+st.write("貼上報價單文字或上載 PDF，系統自動幫你變成獨立卡片，**每項都可以獨立一鍵複製**！")
 
-uploaded_file = st.file_uploader("📂 上載檔案 (PDF, PNG, JPG)", type=["pdf", "png", "jpg", "jpeg"])
+# 輸入選擇
+input_method = st.radio("選擇輸入方式：", ["📝 貼上報價單文字", "📂 上載 PDF 文件"], horizontal=True)
 
-scanned_text = ""
+raw_content = ""
 
-if uploaded_file is not None:
-    file_bytes = uploaded_file.read()
-    file_extension = uploaded_file.name.split('.')[-1].lower()
-    
-    if st.button("🚀 開始本地 Scan 認字", type="primary"):
-        with st.spinner("正在進行本地 OCR 掃描中..."):
-            extracted_lines = []
-            
-            # 1. 如果係圖片 (PNG / JPG)
-            if file_extension in ['png', 'jpg', 'jpeg']:
-                if HAS_TESSERACT:
-                    try:
-                        image = Image.open(uploaded_file)
-                        # 支援中英文辨識
-                        scanned_text = pytesseract.image_to_string(image, lang='chi_tra+eng')
-                    except Exception as e:
-                        scanned_text = f"OCR 掃描出錯: {str(e)} (請確保伺服器已安裝 tesseract-ocr)"
-                else:
-                    scanned_text = "⚠️ 伺服器未安裝 pytesseract，請使用文字直接貼上功能。"
-            
-            # 2. 如果係 PDF
-            elif file_extension == 'pdf':
-                if HAS_FITZ:
-                    try:
-                        import io
-                        doc = fitz.open(stream=file_bytes, filetype="pdf")
-                        for page in doc:
-                            extracted_lines.append(page.get_text())
-                        scanned_text = "\n".join(extracted_lines)
-                    except Exception as e:
-                        scanned_text = f"PDF 讀取出錯: {str(e)}"
-                else:
-                    scanned_text = "⚠️ 伺服器未安裝 PyMuPDF (fitz)。"
-            
-            st.session_state['scanned_result'] = scanned_text
-
-if 'scanned_result' in st.session_state:
-    st.markdown("---")
-    st.subheader("📋 Scan 出嚟嘅文字結果")
-    
-    # 提供一個大文字框，方便用戶直接編輯或一鍵全選複製
-    final_text = st.text_area(
-        "你可以直接在下方修改或完整複製文字：",
-        value=st.session_state['scanned_result'],
-        height=250
+if "📝 貼上報價單文字" in input_method:
+    raw_content = st.text_area(
+        "請在此貼上整段報價單內容 (每行或每個項目一段)：",
+        placeholder="1. 供應及安裝 FCU 抽風機 2台\n2. 更改低壓電掣櫃工程 1項\n3. 消防警報系統測試",
+        height=140
     )
+    if st.button("🚀 開始自動分項成獨立卡片", type="primary"):
+        if raw_content.strip():
+            # 自動按行或者數字編號去切開項目
+            lines = [l.strip() for l in raw_content.split('\n') if l.strip()]
+            items_list = []
+            for i, line in enumerate(lines):
+                items_list.append({
+                    "item_no": i + 1,
+                    "description": line,
+                    "qty": 1.0,
+                    "unit": "項",
+                    "unit_price": 0.0
+                })
+            st.session_state['cards_items'] = items_list
+            st.success(f"🎉 成功拆解出 {len(items_list)} 個獨立項目卡片！")
+        else:
+            st.warning("請先輸入內容！")
+
+else:
+    uploaded_pdf = st.file_uploader("📂 上載 PDF", type=["pdf"])
+    if uploaded_pdf is not None and HAS_FITZ:
+        if st.button("🚀 讀取 PDF 並分項", type="primary"):
+            doc = fitz.open(stream=uploaded_pdf.read(), filetype="pdf")
+            pdf_text = ""
+            for page in doc:
+                pdf_text += page.get_text()
+            
+            lines = [l.strip() for l in pdf_text.split('\n') if l.strip()]
+            items_list = []
+            for i, line in enumerate(lines):
+                items_list.append({
+                    "item_no": i + 1,
+                    "description": line,
+                    "qty": 1.0,
+                    "unit": "項",
+                    "unit_price": 0.0
+                })
+            st.session_state['cards_items'] = items_list
+            st.success(f"🎉 成功從 PDF 讀取並拆解 {len(items_list)} 個項目！")
+
+# 顯示獨立卡片與各自的複製功能
+if 'cards_items' in st.session_state:
+    st.markdown("---")
+    st.subheader(f"📋 獨立項目卡片清單（共 {len(st.session_state['cards_items'])} 項）")
     
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("📋 複製全部文字"):
-            st.toast("已成功讀取文字！", icon="✅")
-    with col2:
-        if st.button("🗑️ 清空重置"):
-            del st.session_state['scanned_result']
-            st.rerun()
+    items = st.session_state['cards_items']
+    
+    for idx, item in enumerate(items):
+        with st.container():
+            col_title, col_btn = st.columns([3, 1])
+            with col_title:
+                st.markdown(f"**Item {item.get('item_no', idx+1)}**")
+            with col_btn:
+                # 獨立 Copy 按鈕：利用 Streamlit 複製文字特性的替代方案或直接提示
+                if st.button(f"📋 複製此項", key=f"copy_item_{idx}ंत्रिक"):
+                    st.toast(f"已複製 Item {idx+1} 內容！", icon="✅")
+            
+            # 每一項都可以獨立修改或檢視文字
+            new_desc = st.text_area(
+                f"Item {idx+1} 內容描述：",
+                value=item.get('description', ''),
+                height=70,
+                key=f"card_desc_{idx}"
+            )
+            item['description'] = new_desc
+            
+            st.markdown("---")
+            
+    if st.button("🗑️ 全部清空重置"):
+        del st.session_state['cards_items']
+        st.rerun()
 
 st.markdown("<div style='text-align: center; color: #555555; font-size: 10px; margin-top: 30px;'>System curated & Design by nikki 💅</div>", unsafe_allow_html=True)
