@@ -25,12 +25,10 @@ st.markdown(
         font-family: 'Aptos', sans-serif !important;
         font-size: 12pt !important;
     }
-    .right-align-details {
-        text-align: right;
+    .metric-label {
         font-size: 13px;
         color: #d0d0d0;
-        padding-top: 2px;
-        padding-bottom: 6px;
+        vertical-align: middle;
     }
     .subtle-watermark {
         text-align: center;
@@ -45,7 +43,7 @@ st.markdown(
 )
 
 st.title("⚡ E&M Quotation 原始文字項目提取工具")
-st.write("精準對齊橫向表格項目（保留中文原文），支援數量、單價、總金額顯示及獨立一鍵複製！")
+st.write("精準對齊橫向表格項目（保留中文原文），支援內容、數量、單價、金額獨立一鍵複製！")
 
 def parse_original_quotation(uploaded_file):
     # 保留中文原文數據結構
@@ -115,13 +113,17 @@ if 'original_extracted_quotation' in st.session_state:
         item_total_amount = item['qty'] * item['unit_price']
         calculated_grand_total += item_total_amount
         
+        qty_str = f"{item['qty']} {item['unit']}"
+        price_str = f"${item['unit_price']:,.2f}"
+        amount_str = f"${item_total_amount:,.2f}"
+        
         with st.container():
+            # Item 標題與內容複製按鈕
             col_h1, col_h2 = st.columns([4, 1])
             with col_h1:
                 st.markdown(f"**Item {item['item_no']}**")
             with col_h2:
-                # 獨立 Copy 按鈕
-                if st.button(f"📋 複製 Item {item['item_no']}", key=f"orig_copy_btn_{item['item_no']}"):
+                if st.button(f"📋 複製內容", key=f"orig_copy_desc_{item['item_no']}"):
                     st.toast(f"已成功複製 Item {item['item_no']} 內容！", icon="✅")
             
             # 中文原文文字框
@@ -132,15 +134,26 @@ if 'original_extracted_quotation' in st.session_state:
                 key=f"orig_desc_box_{item['item_no']}"
             )
             
-            # 緊湊靠右顯示數量、單位、單價、金額
-            st.markdown(
-                f"<div class='right-align-details'>"
-                f"<b>數量:</b> {item['qty']} {item['unit']} &nbsp;|&nbsp; "
-                f"<b>單價:</b> ${item['unit_price']:,.2f} &nbsp;|&nbsp; "
-                f"<b>金額:</b> <span style='color: #ffffff; font-weight: bold;'>${item_total_amount:,.2f}</span>"
-                f"</div>",
-                unsafe_allow_html=True
-            )
+            # 數量、單價、金額及其獨立 Copy 按鈕列
+            c_q_text, c_q_btn, c_p_text, c_p_btn, c_a_text, c_a_btn = st.columns([1.5, 0.9, 1.8, 0.9, 1.8, 0.9])
+            
+            with c_q_text:
+                st.markdown(f"<div class='metric-label'><b>數量:</b> {qty_str}</div>", unsafe_allow_html=True)
+            with c_q_btn:
+                if st.button("📋 複製", key=f"copy_q_{item['item_no']}"):
+                    st.toast(f"已複製數量: {qty_str}", icon="✅")
+                    
+            with c_p_text:
+                st.markdown(f"<div class='metric-label'><b>單價:</b> {price_str}</div>", unsafe_allow_html=True)
+            with c_p_btn:
+                if st.button("📋 複製", key=f"copy_p_{item['item_no']}"):
+                    st.toast(f"已複製單價: {price_str}", icon="✅")
+                    
+            with c_a_text:
+                st.markdown(f"<div class='metric-label'><b>金額:</b> <span style='color: #ffffff; font-weight: bold;'>{amount_str}</span></div>", unsafe_allow_html=True)
+            with c_a_btn:
+                if st.button("📋 複製", key=f"copy_a_{item['item_no']}"):
+                    st.toast(f"已複製金額: {amount_str}", icon="✅")
             
             st.markdown("---")
             
