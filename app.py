@@ -1,105 +1,78 @@
 import streamlit as st
 import json
-import os
-
-try:
-    import fitz  # PyMuPDF
-    HAS_FITZ = True
-except ImportError:
-    HAS_FITZ = False
-
-try:
-    import google.generativeai as genai
-    HAS_GENAI = True
-except ImportError:
-    HAS_GENAI = False
 
 st.set_page_config(page_title="E&M AI 萬能報價單智能識別器", page_icon="⚡", layout="centered")
 
-st.title("⚡ E&M AI 萬能報價單智能識別器")
-st.write("上載任何新 Quotation（PDF、相片、JPG），AI 自動幫你逐項認出內容！")
+# --- 自訂 CSS 樣式 ---
+st.markdown(
+    """
+    <style>
+    .stTextArea textarea {
+        font-family: 'Aptos', sans-serif !important;
+        font-size: 12pt !important;
+    }
+    .metric-label {
+        font-size: 13px;
+        color: #d0d0d0;
+        vertical-align: middle;
+    }
+    .subtle-watermark {
+        text-align: center;
+        color: #555555;
+        font-size: 10px;
+        letter-spacing: 1px;
+        margin-top: 30px;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
-# 檢查 API Key
-api_key = os.environ.get("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY", "")
-if HAS_GENAI and api_key:
-    genai.configure(api_key=api_key)
+st.title("⚡ E&M 報價單智能分項小幫手")
+st.write("直接將 PDF 或電郵嘅 Quotation 文字貼喺下面，系統會自動幫你逐行切開做獨立項目！")
 
-uploaded_file = st.file_uploader("📂 上載任意報價單 (PDF, PNG, JPG)", type=["pdf", "png", "jpg", "jpeg"])
+# 選擇輸入模式
+input_mode = st.radio("選擇輸入方式：", ["📝 直接貼上文字 (最快、免API)", "📂 上載檔案 (PDF / 圖片)"], horizontal=True)
 
-if uploaded_file is not None:
-    file_key = uploaded_file.name
-    if 'current_file_name' not in st.session_state or st.session_state['current_file_name'] != file_key:
-        st.session_state['current_file_name'] = file_key
-        if 'ai_extracted_quotation' in st.session_state:
-            del st.session_state['ai_extracted_quotation']
-            
-    st.success(f"成功載入檔案：{file_key}")
+raw_text_input = ""
+if "📝 直接貼上文字 (最快、免API)" in input_mode:
+    raw_text_input = st.text_area(
+        "請在此貼上報價單內容 (每行一項，或直接貼上整段文字)：",
+        placeholder="例如：\n1. 供應及安裝 FCU 抽風機 2台 @ $3,500\n2. 更改低壓電掣櫃及穿線工程 1項 @ $12,800\n3. 消防警報系統測試",
+        height=150
+    )
     
-    if st.button("🚀 開始 AI 智能萬能提取", type="primary"):
-        with st.spinner("AI 正在深度解析您的報價單結構中..."):
+    if st.button("🚀 開始自動分項拆解", type="primary"):
+        if raw_text_input.strip():
+            lines = raw_text_input.strip().split('\n')
             extracted_items = []
-            file_bytes = uploaded_file.read()
-            file_extension = file_key.split('.')[-1].lower()
-            
-            ai_success = False
-            
-            if HAS_GENAI and api_key:
-                try:
-                    # 使用標準 gemini-2.5-flash 或 gemini-1.5-flash
-                    model = genai.GenerativeModel('gemini-1.5-flash')
-                    
-                    prompt = (
-                        "你是一個專業的 E&M (機電) 工程項目解析助手。請仔細分析這個報價單圖片或文件中的所有工程項目。 "
-                        "請嚴格輸出一個純 JSON 格式的 List（不要包含任何 markdown 符號如 ```json），裏面包含每個項目，格式如下：\n"
-                        "[\n"
-                        "  {\n"
-                        "    \"item_no\": 1,\n"
-                        "    \"description\": \"工程內容描述\",\n"
-                        "    \"qty\": 1.0,\n"
-                        "    \"unit\": \"項/個/米\",\n"
-                        "    \"unit_price\": 100.0\n"
-                        "  }\n"
-                        "]\n"
-                        "如果找不到價格或數量，請預設 qty=1, unit_price=0。"
-                    )
-                    
-                    if file_extension in ['png', 'jpg', 'jpeg']:
-                        image_part = {
-                            "mime_type": f"image/{file_extension if file_extension != 'jpg' else 'jpeg'}",
-                            "data": file_bytes
-                        }
-                        response = model.generate_content([prompt, image_part])
-                    else:
-                        response = model.generate_content([prompt, {"mime_type": "application/pdf", "data": file_bytes}])
-                    
-                    clean_text = response.text.strip()
-                    if clean_text.startswith("```"):
-                        clean_text = clean_text.split("```")[1]
-                        if clean_text.startswith("json"):
-                            clean_text = clean_text[4:]
-                    clean_text = clean_text.strip()
-                    
-                    extracted_items = json.loads(clean_text)
-                    ai_success = True
-                except Exception as e:
-                    st.error(f"AI 識別出錯詳情: {str(e)}")
-                    ai_success = False
-
-            # 如果 AI 未成功，比返個清晰提示同幾行通用項目畀你直接改
-            if not ai_success or not extracted_items:
-                extracted_items = [
-                    {
-                        "item_no": 1,
-                        "description": "（AI 未能讀取，請檢查 API Key 或直接在此修改項目內容）",
+            counter = 1
+            for line in lines:
+                line_s = line.strip()
+                if line_s:
+                    extracted_items.append({
+                        "item_no": counter,
+                        "description": line_s,
                         "qty": 1.0,
                         "unit": "項",
                         "unit_price": 0.0
-                    }
-                ]
-                
+                    })
+                    counter += 1
             st.session_state['ai_extracted_quotation'] = extracted_items
-            st.success(f"🎉 成功載入 {len(extracted_items)} 個項目！")
+            st.success(f"🎉 成功拆解出 {len(extracted_items)} 個項目！")
+        else:
+            st.warning("請先輸入或貼上文字內容！")
 
+else:
+    uploaded_file = st.file_uploader("📂 上載檔案", type=["pdf", "png", "jpg", "jpeg"])
+    if uploaded_file is not None:
+        if st.button("🚀 載入檔案", type="primary"):
+            st.session_state['ai_extracted_quotation'] = [
+                {"item_no": 1, "description": f"已載入檔案：{uploaded_file.name} (請直接於下方修改項目)", "qty": 1.0, "unit": "項", "unit_price": 0.0}
+            ]
+            st.success("成功載入！")
+
+# 顯示解析結果與卡片式介面
 if 'ai_extracted_quotation' in st.session_state:
     st.markdown("---")
     st.subheader(f"📋 項目清單（共 {len(st.session_state['ai_extracted_quotation'])} 項）")
@@ -122,30 +95,30 @@ if 'ai_extracted_quotation' in st.session_state:
             with col_h1:
                 st.markdown(f"**Item {item.get('item_no', idx+1)}**")
             with col_h2:
-                if st.button(f"📋 複製內容", key=f"copy_desc_{idx}"):
+                if st.button(f"📋 複製", key=f"copy_desc_{idx}"):
                     st.toast("已成功複製項目內容！", icon="✅")
             
             new_desc = st.text_area(
                 "內容描述 (Description)：", 
                 value=item.get('description', ''), 
-                height=85, 
+                height=75, 
                 key=f"desc_box_{idx}"
             )
             item['description'] = new_desc
             
             cols = st.columns(6)
             with cols[0]:
-                st.markdown(f"<div style='font-size:13px; color:#d0d0d0;'><b>數量:</b> {qty_str}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='metric-label'><b>數量:</b> {qty_str}</div>", unsafe_allow_html=True)
             with cols[1]:
                 if st.button("📋 複數", key=f"cp_q_{idx}"):
                     st.toast(f"已複製數量: {qty_str}", icon="✅")
             with cols[2]:
-                st.markdown(f"<div style='font-size:13px; color:#d0d0d0;'><b>單價:</b> {price_str}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='metric-label'><b>單價:</b> {price_str}</div>", unsafe_allow_html=True)
             with cols[3]:
                 if st.button("📋 複價", key=f"cp_p_{idx}"):
                     st.toast(f"已複製單價: {price_str}", icon="✅")
             with cols[4]:
-                st.markdown(f"<div style='font-size:13px; color:#d0d0d0;'><b>金額:</b> <span style='color: #fff; font-weight: bold;'>{amount_str}</span></div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='metric-label'><b>金額:</b> <span style='color: #ffffff; font-weight: bold;'>{amount_str}</span></div>", unsafe_allow_html=True)
             with cols[5]:
                 if st.button("📋 複金", key=f"cp_a_{idx}"):
                     st.toast(f"已複製金額: {amount_str}", icon="✅")
@@ -160,11 +133,11 @@ if 'ai_extracted_quotation' in st.session_state:
         if st.button("📥 下載表格數據 (JSON)"):
             export_data = {"grand_total": calculated_grand_total, "items": items}
             json_str = json.dumps(export_data, ensure_ascii=False, indent=4)
-            st.download_button("確認下載 JSON", data=json_str, file_name="ai_extracted_quotation.json", mime="application/json")
+            st.download_button("確認下載 JSON", data=json_str, file_name="quotation_items.json", mime="application/json")
     with col_ex2:
-        if st.button("🗑️ 清空重置（上載新單）"):
+        if st.button("🗑️ 清空重置"):
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             st.rerun()
 
-st.markdown("<div style='text-align: center; color: #55; font-size: 10px; margin-top: 30px;'>System curated & Design by nikki 💅</div>", unsafe_allow_html=True)
+st.markdown("<div class='subtle-watermark'>System curated & Design by nikki 💅</div>", unsafe_allow_html=True)
