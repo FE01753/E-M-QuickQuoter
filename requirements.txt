@@ -1,1 +1,2 @@
-pip install PyMuPDF
+streamlit>=1.30.0
+PyMuPDF>=1.23.0
