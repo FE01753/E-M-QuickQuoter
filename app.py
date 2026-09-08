@@ -1,19 +1,37 @@
 import streamlit as st
 import json
 
-st.set_page_config(page_title="E&M 本地文件自動分項工具", page_icon="⚡", layout="centered")
+try:
+    import fitz  # PyMuPDF 讀取 PDF
+    HAS_FITZ = True
+except ImportError:
+    HAS_FITZ = False
 
-st.title("⚡ E&M 本地文件自動分項工具")
-st.write("直接**貼上報價單文字**，系統秒速自動分項，每項都可以獨立 Copy！")
+st.set_page_config(page_title="E&M 文件自動分項工具", page_icon="⚡", layout="centered")
 
-raw_text = st.text_area("請在此貼上報價單內容：", height=150, placeholder="例如：\n1. 供應及安裝 AFA 報警面板\n2. 檢查低壓配電箱\n3. 更換抽氣扇")
+st.title("⚡ E&M 文件自動分項工具")
+st.write("支援 **PDF 檔案上載** 或 **直接貼上文字**，系統秒速自動分項，每項都可以獨立 Copy！")
 
-if st.button("🚀 開始自動分項", type="primary"):
-    if raw_text.strip():
-        lines = [l.strip() for l in raw_text.split('\n') if l.strip()]
-        items = [{"item_no": i+1, "description": line} for i, line in enumerate(lines)]
-        st.session_state['local_items'] = items
-        st.success(f"🎉 成功拆分出 {len(items)} 個項目！")
+input_mode = st.radio("選擇輸入方式：", ["📂 上載 PDF 檔案", "📝 直接貼上文字"], horizontal=True)
+
+raw_text = ""
+
+if "📂 上載 PDF 檔案" in input_mode:
+    uploaded_pdf = st.file_uploader("請上載報價單 PDF", type=["pdf"])
+    if uploaded_pdf is not None and HAS_FITZ:
+        if st.button("🚀 開始讀取 PDF 並分項", type="primary"):
+            doc = fitz.open(stream=uploaded_pdf.read(), filetype="pdf")
+            for page in doc:
+                raw_text += page.get_text() + "\n"
+else:
+    raw_text = st.text_area("請在此貼上報價單內容：", height=120)
+    if st.button("🚀 開始自動分項", type="primary"):
+        pass
+
+if raw_text.strip():
+    lines = [l.strip() for l in raw_text.split('\n') if l.strip()]
+    items = [{"item_no": i+1, "description": line} for i, line in enumerate(lines)]
+    st.session_state['local_items'] = items
 
 if 'local_items' in st.session_state:
     st.markdown("---")
