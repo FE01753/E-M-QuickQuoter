@@ -1,5 +1,6 @@
 import streamlit as st
 import json
+import re
 import requests
 import io
 from PIL import Image
@@ -10,10 +11,10 @@ try:
 except ImportError:
     HAS_PDF = False
 
-st.set_page_config(page_title="E&M 報價單精準整理工具", page_icon="⚡", layout="centered")
+st.set_page_config(page_title="E&M 報價單精準對齊工具", page_icon="⚡", layout="centered")
 
-st.title("⚡ E&M 報價單精準整理工具")
-st.write("上載 PDF 或相片，安全讀取每一行工程內容，讓你輕鬆逐項整理與複製！")
+st.title("⚡ E&M 報價單精準對齊工具")
+st.write("上載 PDF 或相片，完美對應香港 E&M 報價單格式，將內容、數量、單價、金額精準歸位！")
 
 uploaded_file = st.file_uploader("📂 請上載報價單 PDF 或相片 (JPG, PNG)", type=["pdf", "png", "jpg", "jpeg"])
 
@@ -22,8 +23,8 @@ raw_text = ""
 if uploaded_file is not None:
     file_name = uploaded_file.name.lower()
     
-    if st.button("🚀 開始讀取報價單", type="primary", use_container_width=True):
-        with st.spinner("🤖 正在提取文件內容..."):
+    if st.button("🚀 開始智能解析報價單", type="primary", use_container_width=True):
+        with st.spinner("🤖 正在還原報價單橫向表格結構..."):
             try:
                 if file_name.endswith('.pdf') and HAS_PDF:
                     reader = PdfReader(uploaded_file)
@@ -49,47 +50,74 @@ if uploaded_file is not None:
                 st.error(f"讀取錯誤: {str(e)}")
 
         if raw_text.strip():
-            # 過濾空白或過短嘅行
-            lines = [l.strip() for l in raw_text.split('\n') if len(l.strip()) > 3]
+            lines = [l.strip() for l in raw_text.split('\n') if l.strip()]
+            parsed_items = []
             
-            # 過濾常見嘅頁首頁尾雜訊
-            filtered_lines = []
-            ignore_list = ["項目 item", "descriptions", "數量 qty", "單價", "金額 price", "page"]
+            ignore_keywords = ["項目 item", "descriptions", "數量 qty", "單價", "金額 price", "page"]
+            
             for line in lines:
-                if not any(ign in line.lower() for ign in ignore_list):
-                    filtered_lines.append(line)
-            
-            items = []
-            for i, line in enumerate(filtered_lines):
-                items.append({
-                    "item_no": i + 1,
-                    "description": line,
-                    "qty": "",
-                    "unit_price": "",
-                    "amount": ""
+                if any(ign in line.lower() for ign in ignore_keywords) and len(line) < 15:
+                    continue
+                
+                # 嘗試精準尋找金額 (例如 HK$6,000.00 或 $6,000)
+                prices = re.findall(r'(?:HKD|HK\$|\$)?\s*[\d,]+\.\d{2}', line)
+                
+                # 嘗試尋找數量 (例如 1項, 180米, 2 sets)
+                qty_match = re.search(r'(\d+\s*(?:項|米|批|套|個|件|組|set|sets|pc|pcs|m|nos|lot)\b)', line, re.IGNORECASE)
+                qty = qty_match.group(1) if qty_match else ""
+                
+                unit_price = ""
+                amount = ""
+                if len(prices) >= 2:
+                    unit_price = prices[0]
+                    amount = prices[1]
+                elif len(prices) == 1:
+                    amount = prices[0]
+                
+                # 剝離數量同金額，保留真正的文字 Description
+                desc = line
+                if qty:
+                    desc = desc.replace(qty, "")
+                for p in prices:
+                    desc = desc.replace(p, "")
+                
+                # 清理多餘符號
+                desc = re.sub(r'[\$\,\.]+$', '', desc).strip()
+                desc = re.sub(r'\s+', ' ', desc)
+                
+                # 如果描述太短或者只剩數字，就直接保留整行做 Description，避免變成亂碼 "HK"
+                if len(desc) < 3:
+                    desc = line
+                
+                parsed_items.append({
+                    "item_no": len(parsed_items) + 1,
+                    "description": desc,
+                    "qty": qty if qty else "",
+                    "unit_price": unit_price if unit_price else "",
+                    "amount": amount if amount else ""
                 })
-            st.session_state['clean_items'] = items
-            st.success(f"🎉 成功讀取有效項目共 {len(items)} 個！")
+                
+            st.session_state['parsed_items'] = parsed_items
+            st.success(f"🎉 成功解析全部 {len(parsed_items)} 個項目！")
 
-# 顯示乾淨嘅卡片，讓你可以隨手執位
-if 'clean_items' in st.session_state and st.session_state['clean_items']:
+# 顯示完美對齊截圖排版的介面
+if 'parsed_items' in st.session_state and st.session_state['parsed_items']:
     st.markdown("---")
-    st.subheader(f"📋 項目檢視與執位（共 {len(st.session_state['clean_items'])} 項）")
+    st.subheader(f"📋 報價單解析結果（共 {len(st.session_state['parsed_items'])} 項）")
     
-    for idx, item in enumerate(st.session_state['clean_items']):
+    for idx, item in enumerate(st.session_state['parsed_items']):
         col_h1, col_h2 = st.columns([3, 1])
         with col_h1:
             st.markdown(f"**Item {idx+1}**")
         with col_h2:
-            if st.button("📋 複製整組", key=f"copy_all_{idx}", use_container_width=True):
+            if st.button("📋 複製整組", key=f"copy_group_{idx}", use_container_width=True):
                 st.toast(f"已複製 Item {idx+1}！", icon="✅")
         
-        # 內容描述
         st.markdown("**內容 Descriptions**")
-        new_desc = st.text_area("", value=item['description'], height=65, key=f"desc_{idx}", label_visibility="collapsed")
+        new_desc = st.text_area("", value=item['description'], height=75, key=f"desc_{idx}", label_visibility="collapsed")
         item['description'] = new_desc
         
-        # 打橫一組：數量、單價、金額
+        # 下方打橫一組：數量、單價、金額
         col_q, col_p, col_a = st.columns(3)
         with col_q:
             st.markdown("**數量 Qty**")
@@ -104,7 +132,7 @@ if 'clean_items' in st.session_state and st.session_state['clean_items']:
         st.markdown("---")
         
     if st.button("🗑️ 清空重置", use_container_width=True):
-        del st.session_state['clean_items']
+        del st.session_state['parsed_items']
         st.rerun()
 
 st.markdown("<div style='text-align: center; color: #555; font-size: 10px; margin-top: 30px;'>System curated & Design by nikki 💅</div>", unsafe_allow_html=True)
